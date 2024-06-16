@@ -4,6 +4,11 @@ import os
 import json
 from PIL import Image
 
+# 페이지 정보
+st.set_page_config(
+    page_title="KS_Library"
+)
+
 # 앱 제목 설정
 st.title("Daily Photo Upload")
 
