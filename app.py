@@ -1,87 +1,59 @@
 import streamlit as st
-from datetime import date
-import os
-import json
-from PIL import Image
+import pandas as pd
+from pykrx import stock
+from datetime import datetime
 
-# 페이지 정보
-st.set_page_config(
-    page_title="KS_Library"
-)
+# Streamlit 앱 제목
+st.title("재무정보 상위 종목")
 
-# 앱 제목 설정
-st.title("Daily Photo Upload")
+# 오늘 날짜를 기준으로 데이터 가져오기
+today = datetime.today().strftime('%Y%m%d')
 
-# 현재 날짜 표시
-today = date.today()
-st.write(f"Today's date: {today}")
+# 모든 종목의 재무 정보를 가져오기
+financial_df = stock.get_market_fundamental_by_ticker(date=today, market="KOSPI")
 
-# 파일 업로드
-uploaded_file = st.file_uploader("Choose an image...", type=["jpg", "jpeg", "png"])
-description = st.text_input("Enter a description for the image")
+# 종목 코드를 인덱스에서 컬럼으로 변환
+financial_df.reset_index(inplace=True)
 
-if uploaded_file is not None and description:
-    # 디렉토리 생성
-    upload_dir = os.path.join("uploaded_photos", str(today))
-    if not os.path.exists(upload_dir):
-        os.makedirs(upload_dir)
+# 종목 이름을 가져와서 추가하기
+financial_df['종목명'] = financial_df['티커'].apply(lambda x: stock.get_market_ticker_name(x))
 
-    # 파일 저장
-    file_path = os.path.join(upload_dir, uploaded_file.name)
-    with open(file_path, "wb") as f:
-        f.write(uploaded_file.getbuffer())
+# 종목명을 첫 번째 열로 이동
+def move_stock_name_to_front(df):
+    cols = ['종목명'] + [col for col in df.columns if col != '종목명']
+    return df[cols]
 
-    # 설명 저장
-    desc_file_path = os.path.join(upload_dir, f"{uploaded_file.name}.json")
-    with open(desc_file_path, "w") as f:
-        json.dump({"description": description}, f)
+# 탭 구성
+tab1, tab2, tab3, tab4 = st.tabs(["PER 상위 종목", "PBR 상위 종목", "EPS 상위 종목", "중복 종목"])
+
+with tab1:
+    st.header("PER 상위 종목")
+    num_per = st.number_input("PER 상위 몇 개 종목을 보시겠습니까?", min_value=1, max_value=100, value=30, key="num_per")
+    top_per = financial_df.sort_values(by='PER', ascending=False).head(num_per)
+    top_per = move_stock_name_to_front(top_per)
+    st.dataframe(top_per)
+
+with tab2:
+    st.header("PBR 상위 종목")
+    num_pbr = st.number_input("PBR 상위 몇 개 종목을 보시겠습니까?", min_value=1, max_value=100, value=30, key="num_pbr")
+    top_pbr = financial_df.sort_values(by='PBR', ascending=False).head(num_pbr)
+    top_pbr = move_stock_name_to_front(top_pbr)
+    st.dataframe(top_pbr)
+
+with tab3:
+    st.header("EPS 상위 종목")
+    num_eps = st.number_input("EPS 상위 몇 개 종목을 보시겠습니까?", min_value=1, max_value=100, value=30, key="num_eps")
+    top_eps = financial_df.sort_values(by='EPS', ascending=False).head(num_eps)
+    top_eps = move_stock_name_to_front(top_eps)
+    st.dataframe(top_eps)
+
+with tab4:
+    st.header("중복 종목")
+    # 중복 항목 찾기
+    common_stocks = set(top_per['종목명']).intersection(set(top_pbr['종목명'])).intersection(set(top_eps['종목명']))
     
-    # 이미지 및 설명 표시
-    st.image(uploaded_file, caption='Uploaded Image.', use_column_width=True)
-    st.write("Image and description uploaded successfully!")
-    st.write(f"Saved as: {file_path}")
-
-# 갤러리 표시
-st.write("## Gallery")
-root_dir = "uploaded_photos"
-for dirpath, dirnames, filenames in os.walk(root_dir):
-    for dirname in sorted(dirnames):
-        st.write(f"### {dirname}")
-        dir_full_path = os.path.join(dirpath, dirname)
-        images = sorted([f for f in os.listdir(dir_full_path) if not f.endswith('.json')])
-        for image_name in images:
-            image_path = os.path.join(dir_full_path, image_name)
-            image = Image.open(image_path)
-
-            # 설명 읽기
-            desc_file_path = os.path.join(dir_full_path, f"{image_name}.json")
-            if os.path.exists(desc_file_path):
-                with open(desc_file_path, "r") as f:
-                    description = json.load(f)["description"]
-            else:
-                description = "No description available."
-
-            st.image(image, caption=description, use_column_width=True)
-
-            # 컬럼을 사용하여 가운데 정렬
-            col1, col2, col3 = st.columns([1, 2, 1])
-            with col2:
-                delete_button = st.button(f"Delete {image_name}", key=f"delete_button_{image_path}")
-                if delete_button:
-                    st.session_state[f"confirm_delete_{image_path}"] = True
-
-            # 삭제 확인 절차
-            if st.session_state.get(f"confirm_delete_{image_path}", False):
-                st.warning(f"Are you sure you want to delete {image_name}?")
-                confirm_button = st.button(f"Yes, delete {image_name}", key=f"confirm_button_{image_path}")
-                cancel_button = st.button("Cancel", key=f"cancel_button_{image_path}")
-
-                if confirm_button:
-                    os.remove(image_path)
-                    if os.path.exists(desc_file_path):
-                        os.remove(desc_file_path)
-                    del st.session_state[f"confirm_delete_{image_path}"]
-                    st.experimental_rerun()
-
-                if cancel_button:
-                    del st.session_state[f"confirm_delete_{image_path}"]
+    # 중복 종목 데이터프레임 생성
+    common_df = financial_df[financial_df['종목명'].isin(common_stocks)]
+    common_df = move_stock_name_to_front(common_df)
+    
+    st.dataframe(common_df)
