@@ -1,7 +1,7 @@
 import streamlit as st
 import pandas as pd
 from pykrx import stock
-from datetime import datetime
+from datetime import datetime, timedelta
 
 # Streamlit 앱 제목
 st.title("재무정보 상위 종목")
@@ -10,13 +10,12 @@ st.title("재무정보 상위 종목")
 today = datetime.today().strftime('%Y%m%d')
 
 # 모든 종목의 재무 정보를 가져오기
-financial_df = stock.get_market_fundamental_by_ticker(date=today, market="KOSPI")
-
-# 종목 코드를 인덱스에서 컬럼으로 변환
-financial_df.reset_index(inplace=True)
-
-# 종목 이름을 가져와서 추가하기
-financial_df['종목명'] = financial_df['티커'].apply(lambda x: stock.get_market_ticker_name(x))
+try:
+    financial_df = stock.get_market_fundamental_by_ticker(date=today, market="KOSPI")
+    financial_df.reset_index(inplace=True)
+    financial_df['종목명'] = financial_df['티커'].apply(lambda x: stock.get_market_ticker_name(x))
+except Exception as e:
+    st.error(f"재무 정보를 가져오는 중 오류가 발생했습니다: {e}")
 
 # 종목명을 첫 번째 열로 이동
 def move_stock_name_to_front(df):
@@ -49,11 +48,67 @@ with tab3:
 
 with tab4:
     st.header("중복 종목")
-    # 중복 항목 찾기
     common_stocks = set(top_per['종목명']).intersection(set(top_pbr['종목명'])).intersection(set(top_eps['종목명']))
-    
-    # 중복 종목 데이터프레임 생성
     common_df = financial_df[financial_df['종목명'].isin(common_stocks)]
     common_df = move_stock_name_to_front(common_df)
-    
     st.dataframe(common_df)
+
+
+st.title("종목별 세부사항 조회")
+
+# 사용자로부터 티커 입력 받기
+ticker = st.text_input("티커를 입력하세요 (예: 005930)", value="005930")
+
+# 사용자로부터 날짜 범위 입력 받기
+start_date = st.date_input("시작 날짜", value=datetime.today() - timedelta(days=30))
+end_date = st.date_input("종료 날짜", value=datetime.today())
+
+# 날짜 형식 변환
+start_date = start_date.strftime('%Y%m%d')
+end_date = end_date.strftime('%Y%m%d')
+
+try:
+    ohlcv_df = stock.get_market_ohlcv_by_date(start_date, end_date, ticker)
+    ohlcv_df.reset_index(inplace=True)
+    ohlcv_df['날짜'] = pd.to_datetime(ohlcv_df['날짜'])
+except Exception as e:
+    st.error(f"OHLCV 데이터를 가져오는 중 오류가 발생했습니다: {e}")
+
+try:
+    finance_df = stock.get_market_fundamental_by_date(start_date, end_date, ticker)
+    finance_df.reset_index(inplace=True)
+    finance_df['날짜'] = pd.to_datetime(finance_df['날짜'])
+except Exception as e:
+    st.error(f"DIV/BPS/PER/EPS 데이터를 가져오는 중 오류가 발생했습니다: {e}")
+
+try:
+    trading_value_df = stock.get_market_trading_value_by_date(start_date, end_date, ticker)
+    trading_value_df.reset_index(inplace=True)
+    trading_value_df['날짜'] = pd.to_datetime(trading_value_df['날짜'])
+except Exception as e:
+    st.error(f"거래대금 데이터를 가져오는 중 오류가 발생했습니다: {e}")
+
+try:
+    trading_volume_df = stock.get_market_trading_volume_by_date(start_date, end_date, ticker)
+    trading_volume_df.reset_index(inplace=True)
+    trading_volume_df['날짜'] = pd.to_datetime(trading_volume_df['날짜'])
+except Exception as e:
+    st.error(f"거래량 데이터를 가져오는 중 오류가 발생했습니다: {e}")
+
+tab5, tab6, tab7, tab8 = st.tabs(["OHLCV", "DIV/BPS/PER/EPS", "거래실적 추이 (거래대금)", "거래실적 추이 (거래량)"])
+
+with tab5:
+    st.subheader("기간 내 OHLCV")
+    st.line_chart(ohlcv_df.set_index('날짜')[['시가', '고가', '저가', '종가', '거래량']])
+
+with tab6:
+    st.header("기간 내 DIV/BPS/PER/EPS")
+    st.line_chart(finance_df.set_index('날짜')[['DIV', 'BPS', 'PER', 'EPS']])
+
+with tab7:
+    st.header("기간 내 거래실적 추이 (거래대금)")
+    st.line_chart(trading_value_df.set_index('날짜')[['기관합계','기타법인','개인','외국인합계','전체']])
+
+with tab8:
+    st.header("기간 내 거래실적 추이 (거래량)")
+    st.line_chart(trading_volume_df.set_index('날짜')[['기관합계','기타법인','개인','외국인합계','전체']])
